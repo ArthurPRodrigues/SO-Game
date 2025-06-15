@@ -25,10 +25,10 @@ sudo apt install build-essential libncurses5-dev libncursesw5-dev
 ### Threads e Concorrência
 
 -> rocketThread
-Thread responsável por mover os foguetes horizontalmente na tela. Utiliza mutex para proteger o acesso à lista de canhões em uso. Se um disparo do canhão colide com o helicóptero, o jogo é imediatamente encerrado com a mensagem "Game Over".
+Thread responsável por mover os foguetes horizontalmente na tela. Utiliza mutex para proteger o acesso à lista de foguetes em uso. Se um disparo do foguete colide com o helicóptero, o jogo é imediatamente encerrado com a mensagem "Game Over".
 
 -> batteryThread
-Gerencia o disparo e recarregamento das baterias. Enquanto o jogo estiver ativo e houver canhões disponíveis, a bateria dispara em posições verticais aleatórias usando rand(). Após esgotar os disparos, a thread simula o processo de recarga e sincroniza o acesso com mutexes.
+Gerencia o disparo e recarregamento das baterias. Enquanto o jogo estiver ativo e houver foguetes disponíveis, a bateria dispara em posições verticais aleatórias usando rand(). Após esgotar os disparos, a thread simula o processo de recarga e sincroniza o acesso com mutexes.
 
 -> helicopterThread
 Controla a lógica do helicóptero. Valida se ainda há soldados a serem transportados e, caso contrário, encerra o jogo com sucesso. A thread gerencia a coleta na base de origem e a entrega na base de destino, além de verificar colisões com baterias e foguetes. Em caso de impacto, a aplicação exibe "Game Over" e finaliza.
