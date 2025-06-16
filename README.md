@@ -62,9 +62,9 @@ Objetivo: transportar 10 soldados da base de origem até a base de destino, sem 
 
 ### Desenvolvido pelos estudantes
 
-# Arthur Paulo Rodrigues (23100747)
-# Felipe Delduqui Alves Pinto Flávio (23100769)
-# Roberto Gabriel Ferreira (23100739) 
+#### Arthur Paulo Rodrigues (23100747)
+#### Felipe Delduqui Alves Pinto Flávio (23100769)
+#### Roberto Gabriel Ferreira (23100739) 
 
 
     
