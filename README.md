@@ -33,7 +33,14 @@ Gerencia o disparo e recarregamento das baterias. Enquanto o jogo estiver ativo 
 -> helicopterThread
 Controla a lógica do helicóptero. Valida se ainda há soldados a serem transportados e, caso contrário, encerra o jogo com sucesso. A thread gerencia a coleta na base de origem e a entrega na base de destino, além de verificar colisões com baterias e foguetes. Em caso de impacto, a aplicação exibe "Game Over" e finaliza.
 
----
+### Mutexes
+
+Neste trabalho, foram adicionados 3 mutexes para gerenciar o controle das threads do jogo. São eles:
+
+screenMutex: Garante que somente uma thread por vez modifique a janela do jogo.
+rocketListMutex: Previne condições de corrida quando múltiplas threads acessam ou modificam a lista de foguetes ao mesmo tempo.
+rechargeMutex: Permite que apenas uma bateria recarregue por vez, enquanto a outra aguarda.
+
 
 ### Inicialização do projeto
 
@@ -52,6 +59,12 @@ Enter: seleciona a dificuldade no menu
 q: encerra o jogo manualmente
 
 Objetivo: transportar 10 soldados da base de origem até a base de destino, sem ser atingido
+
+### Desenvolvido pelos estudantes
+
+Arthur Paulo Rodrigues (23100747)
+Felipe Delduqui Alves Pinto Flávio (23100769)
+Roberto Gabriel Ferreira (23100739) 
 
 
     
