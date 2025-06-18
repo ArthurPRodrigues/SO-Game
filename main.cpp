@@ -2,15 +2,16 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <ncurses.h>
-#include <vector> //array, mas dinâmico
-#include <cstdlib> // rand() e srand()
-#include <ctime> // time(NULL)
-#include <algorithm> //std::remove_if
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <algorithm>
 
 // Definições de tamanho da tela e configurações do modo fácil
 #define SCREEN_HEIGHT 20
 #define SCREEN_WIDTH 60
 #define MAX_SOLDIERS 10
+#define RECHARGE_BASE_X 2  // Posição X da base de recarga
 
 // Estrutura para representar posições na tela
 struct Position {
@@ -22,11 +23,17 @@ struct Rocket {
     int x, y, batteryId;
 };
 
+// Estrutura para armazenar o estado de cada bateria
+struct Battery {
+    int x;
+    int rocketsLeft;
+    bool isRecharging;
+};
+
 // Enumeração e estrutura para configurações de dificuldade
 enum Difficulty { EASY, MEDIUM, HARD };
 Difficulty selectedDifficulty;
 
-// 
 struct DifficultySettings {
     int maxRockets;
     int PeriodBetweenRocketsS;
@@ -35,9 +42,9 @@ struct DifficultySettings {
 
 // Tabela de configurações por dificuldade
 DifficultySettings possibleSettings[] = {
-    {1, 5, 500},   // Fácil
+    {2, 5, 500},   // Fácil
     {4, 3, 250},   // Médio
-    {8, 1, 100}   // Difícil
+    {8, 1, 100}    // Difícil
 };
 DifficultySettings currentSettings;
 
@@ -46,17 +53,16 @@ Position platformOrigin, platformDest, helicopter;
 bool carryingSoldier = false;
 std::vector<pthread_t> activeRockets;
 std::vector<Rocket> activeRocketPositions;
-const int batteryX = SCREEN_WIDTH - 5;
-int battery0Y = 3;
-int battery1Y = 7;
+const int batteryY = SCREEN_HEIGHT - 2;  // Posição Y fixa na parte inferior
+Battery battery0 = {15, 0, false};
+Battery battery1 = {45, 0, false};
 int soldiersTransported = 0;
 bool gameRunning = true;
 
 // Mutexes para sincronização
 pthread_mutex_t screenMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t rocketListMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t depositMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t bridgeMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t rechargeMutex = PTHREAD_MUTEX_INITIALIZER;  // Controla acesso à recarga
 
 // Janela principal do jogo (ncurses)
 WINDOW* gamewin;
@@ -91,7 +97,6 @@ Difficulty chooseDifficulty() {
     }
 }
 
-// Função para mostrar mensagens centrais na tela (ex: game over)
 void messageOnScreen(const std::string& message) {
     pthread_mutex_lock(&screenMutex);
     werase(gamewin);
@@ -101,7 +106,6 @@ void messageOnScreen(const std::string& message) {
     pthread_mutex_unlock(&screenMutex);
 }
 
-// Função para desenhar todos os elementos na tela
 void drawScreen() {
     pthread_mutex_lock(&screenMutex);
     werase(gamewin);
@@ -113,8 +117,13 @@ void drawScreen() {
     // Plataformas e baterias
     mvwprintw(gamewin, platformOrigin.y, platformOrigin.x, "_");
     mvwprintw(gamewin, platformDest.y, platformDest.x, "_");
-    mvwprintw(gamewin, battery0Y, batteryX, "B0");
-    mvwprintw(gamewin, battery1Y, batteryX, "B1");
+    
+    // Base de recarga
+    mvwprintw(gamewin, batteryY, RECHARGE_BASE_X, "[R]");
+    
+    // Baterias com contagem de foguetes
+    mvwprintw(gamewin, batteryY, battery0.x, "B0(%d)%s", battery0.rocketsLeft, battery0.isRecharging ? "R" : "");
+    mvwprintw(gamewin, batteryY, battery1.x, "B1(%d)%s", battery1.rocketsLeft, battery1.isRecharging ? "R" : "");
 
     // Helicóptero
     mvwprintw(gamewin, helicopter.y, helicopter.x, carryingSoldier ? "H[S]" : "H[-]");
@@ -129,26 +138,17 @@ void drawScreen() {
     pthread_mutex_unlock(&rocketListMutex);
 
     // Rodapé e borda
-    mvwprintw(gamewin, SCREEN_HEIGHT - 2, 0, "===========================================================");
+    mvwprintw(gamewin, SCREEN_HEIGHT - 1, 0, "===========================================================");
     box(gamewin, 0, 0);
     wrefresh(gamewin);
     pthread_mutex_unlock(&screenMutex);
 }
 
-// Thread que move o foguete horizontalmente até sair da tela ou atingir o helicóptero
 void* rocketThread(void* arg) {
     Rocket rocket = *(Rocket*)arg;
     delete (Rocket*)arg;
 
-    while (gameRunning && rocket.x >= 0) {
-        pthread_mutex_lock(&rocketListMutex);
-        for (auto& r : activeRocketPositions) {
-            if (r.batteryId == rocket.batteryId && r.x == rocket.x + 1) {
-                r.x = rocket.x;
-            }
-        }
-        pthread_mutex_unlock(&rocketListMutex);
-
+    while (gameRunning && rocket.y >= 0) {
         // Verifica colisão com o helicóptero
         bool hit = false;
         pthread_mutex_lock(&screenMutex);
@@ -161,16 +161,16 @@ void* rocketThread(void* arg) {
             break;
         }
 
-        // Move o foguete
+        // Move o foguete para cima
         pthread_mutex_lock(&rocketListMutex);
         for (auto& r : activeRocketPositions) {
-            if (r.batteryId == rocket.batteryId && r.x == rocket.x + 1) {
-                r.x--;
+            if (r.batteryId == rocket.batteryId && r.x == rocket.x && r.y == rocket.y) {
+                r.y--;
             }
         }
         pthread_mutex_unlock(&rocketListMutex);
 
-        rocket.x--;
+        rocket.y--;
         usleep(80000); // Delay entre movimentos
     }
 
@@ -183,7 +183,6 @@ void* rocketThread(void* arg) {
     return nullptr;
 }
 
-// Função que dispara um novo foguete a partir da bateria
 void fireRocketFromBattery(int x, int y, int batteryId) {
     Rocket* rocket = new Rocket{.x = x, .y = y, .batteryId = batteryId};
     pthread_mutex_lock(&rocketListMutex);
@@ -197,32 +196,58 @@ void fireRocketFromBattery(int x, int y, int batteryId) {
     pthread_mutex_unlock(&rocketListMutex);
 }
 
-// Thread de uma bateria: dispara foguetes até acabar, depois vai recarregar
 void* batteryThread(void* arg) {
     int batteryId = *(int*)arg;
     delete (int*)arg;
 
-    int rocketsLeft = currentSettings.maxRockets;
-    int minY = 3, maxY = SCREEN_HEIGHT - 3;
+    Battery* battery = (batteryId == 0) ? &battery0 : &battery1;
+    battery->rocketsLeft = currentSettings.maxRockets;
+    int minX = 5, maxX = SCREEN_WIDTH - 5;
 
     while (gameRunning) {
-        if (rocketsLeft > 0) {
-            int batteryY = minY + rand() % (maxY - minY + 1);
-            if (batteryId == 0) battery0Y = batteryY;
-            else battery1Y = batteryY;
+        if (battery->rocketsLeft > 0) {
+            battery->isRecharging = false;
+            int batteryX = minX + rand() % (maxX - minX + 1);
+            battery->x = batteryX;
 
-            fireRocketFromBattery(batteryX, batteryY, batteryId);
-            rocketsLeft--;
+            fireRocketFromBattery(batteryX, batteryY - 1, batteryId);
+            battery->rocketsLeft--;
         } else {
-            // Sincronização para atravessar a ponte e recarregar
-            pthread_mutex_lock(&bridgeMutex);
-            pthread_mutex_lock(&depositMutex);
-
-            usleep(currentSettings.ReloadTimeMs*1000);  // Simula o tempo de recarga
-            rocketsLeft = currentSettings.maxRockets;
-
-            pthread_mutex_unlock(&depositMutex);
-            pthread_mutex_unlock(&bridgeMutex);
+            // Verifica se outra bateria já está recarregando
+            bool otherBatteryRecharging = (batteryId == 0) ? battery1.isRecharging : battery0.isRecharging;
+            
+            if (!otherBatteryRecharging) {
+                // Bloqueia o mutex antes de começar a recarga
+                pthread_mutex_lock(&rechargeMutex);
+                battery->isRecharging = true;
+                
+                // Move para a base de recarga
+                while (battery->x > RECHARGE_BASE_X + 4 && gameRunning) {
+                    battery->x--;
+                    drawScreen();
+                    usleep(100000);
+                }
+                
+                // Processo de recarga
+                while (battery->rocketsLeft < currentSettings.maxRockets && gameRunning) {
+                    usleep(currentSettings.ReloadTimeMs * 1000);
+                    battery->rocketsLeft++;
+                    drawScreen();
+                }
+                
+                // Move de volta para posição de combate
+                while (battery->x < minX && gameRunning) {
+                    battery->x++;
+                    drawScreen();
+                    usleep(100000);
+                }
+                
+                battery->isRecharging = false;
+                pthread_mutex_unlock(&rechargeMutex);
+            } else {
+                // Outra bateria está recarregando, espera um pouco
+                usleep(500000);
+            }
         }
 
         drawScreen();
@@ -231,7 +256,6 @@ void* batteryThread(void* arg) {
     return nullptr;
 }
 
-// Thread que controla a lógica do helicóptero (movimento, entrega de soldados, colisões)
 void* helicopterThread(void* arg) {
     while (gameRunning) {
         if (soldiersTransported >= MAX_SOLDIERS) {
@@ -252,12 +276,11 @@ void* helicopterThread(void* arg) {
         else if (currentPos.x == platformDest.x && currentPos.y == platformDest.y && carryingSoldier) {
             carryingSoldier = false;
             soldiersTransported++;
-            platformDest.y = 3 + rand() % (SCREEN_HEIGHT - 6); // Muda destino verticalmente
+            platformDest.x = 10 + rand() % (SCREEN_WIDTH - 20); // Muda destino horizontalmente
         }
 
         // Verifica colisão com baterias ou parede
-        if ((currentPos.x == batteryX && (currentPos.y == battery0Y || currentPos.y == battery1Y)) ||
-            currentPos.y <= 2 || currentPos.y >= SCREEN_HEIGHT - 2) {
+        if ((currentPos.y == batteryY && (currentPos.x == battery0.x || currentPos.x == battery1.x)) || currentPos.x <= 0 || currentPos.x >= SCREEN_WIDTH - 1 || currentPos.y <= 0 || currentPos.y >= SCREEN_HEIGHT - 1) {
             messageOnScreen("Game Over. Helicopter was destroyed.");
             gameRunning = false;
             break;
@@ -269,9 +292,7 @@ void* helicopterThread(void* arg) {
     return nullptr;
 }
 
-// Função principal: inicialização da tela, criação das threads e controle de entrada do jogador
 int main() {
-
     // Window inicial para escolha da dificuldade
     initscr();
     noecho();
@@ -295,6 +316,10 @@ int main() {
     platformOrigin = {1, SCREEN_HEIGHT / 2};
     platformDest = {SCREEN_WIDTH-20, SCREEN_HEIGHT / 2};
     helicopter = platformOrigin;
+
+    // Inicializa baterias
+    battery0.rocketsLeft = currentSettings.maxRockets;
+    battery1.rocketsLeft = currentSettings.maxRockets;
 
     // Cria as threads do jogo
     pthread_t heliThread, bat0Thread, bat1Thread;
